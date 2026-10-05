@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function schoolPath(schoolId) {
+      return /databases/$(database)/documents/schools/$(schoolId);
+    }
+
+    function memberPath(schoolId, uid) {
+      return /databases/$(database)/documents/schools/$(schoolId)/members/$(uid);
+    }
+
+    function isActiveMember(schoolId) {
+      return signedIn()
+        && exists(memberPath(schoolId, request.auth.uid))
+        && get(memberPath(schoolId, request.auth.uid)).data.status == 'active';
+    }
+
+    match /users/{uid} {
+      allow get: if isSelf(uid);
+      allow list, delete: if false;
+
+      allow create: if isSelf(uid)
+        && !exists(userPath(uid))
+        && request.resource.data.keys().hasAll(['uid', 'email', 'displayName', 'activeSchoolId', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'activeSchoolId', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.activeSchoolId is string
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && getAfter(schoolPath(request.resource.data.activeSchoolId)).data.createdBy == uid
+        && getAfter(memberPath(request.resource.data.activeSchoolId, uid)).data.role == 'director';
+
+      allow update: if isSelf(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'updatedAt'])
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.activeSchoolId == resource.data.activeSchoolId
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /schools/{schoolId} {
+      allow get: if signedIn()
+        && (resource.data.createdBy == request.auth.uid || isActiveMember(schoolId));
+      allow list, update, delete: if false;
+
+      allow create: if signedIn()
+        && !exists(userPath(request.auth.uid))
+        && request.resource.data.keys().hasAll(['name', 'createdBy', 'createdAt', 'updatedAt', 'currency', 'country'])
+        && request.resource.data.keys().hasOnly(['name', 'createdBy', 'createdAt', 'updatedAt', 'currency', 'country'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.currency == 'INR'
+        && request.resource.data.country == 'India'
+        && getAfter(userPath(request.auth.uid)).data.activeSchoolId == schoolId
+        && getAfter(memberPath(schoolId, request.auth.uid)).data.role == 'director';
+
+      match /members/{memberUid} {
+        allow get: if isSelf(memberUid);
+        allow list, update, delete: if false;
+
+        allow create: if isSelf(memberUid)
+          && !exists(memberPath(schoolId, memberUid))
+          && request.resource.data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'status', 'joinedAt'])
+          && request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'status', 'joinedAt'])
+          && request.resource.data.uid == memberUid
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.displayName is string
+          && request.resource.data.role == 'director'
+          && request.resource.data.status == 'active'
+          && request.resource.data.joinedAt == request.time
+          && getAfter(schoolPath(schoolId)).data.createdBy == memberUid
+          && getAfter(userPath(memberUid)).data.activeSchoolId == schoolId;
+      }
+    }
+  }
+}

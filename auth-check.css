@@ -1,0 +1,4 @@
+.auth-check-screen{display:none;min-height:100vh;place-items:center;padding:24px;background:var(--paper);color:var(--ink);font:500 13px 'DM Sans',sans-serif}
+body.auth-checking #authScreen{display:none}
+body.auth-checking .auth-check-screen{display:grid}
+body.auth-checking .app-footer{display:none}
